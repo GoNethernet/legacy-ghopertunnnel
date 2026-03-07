@@ -6,7 +6,7 @@ An advanced, high-performance extension for **gophertunnel**, designed to stream
 
 ## ✨ Key Features
 
-* **Advanced Command Handling:** A robust reflection-based command system with support for custom enums, optional arguments, and target selectors.
+* **Command Handling:** Command handling is basically as same as Dragonfly.
 * **Seamless Form Management:** Effortlessly handle UI forms and responses with built-in session tracking.
 * **Customizable Resources:** Fully manageable asset system via the `/resources` directory, allowing for dynamic pack injection and caching.
 * **Native Raknet Integration:** Optimized for Raknet, providing a stable and developer-friendly framework.

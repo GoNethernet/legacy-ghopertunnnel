@@ -1,0 +1,15 @@
+{
+  "network": {
+    "local_address": "127.0.0.1:19132",
+    "remote_direct": ""
+  },
+  "Resources": { 
+    "cache_path": "resources/cache",
+    "path": "resources",
+    "required": true
+  },
+  "Whitelist": {
+    "enabled": false,
+    "names": []
+  }
+}

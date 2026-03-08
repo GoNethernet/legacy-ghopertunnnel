@@ -5,9 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-
-	"github.com/gonethernet/legacy-ghopertunnel/legacy/player"
-
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gonethernet/legacy-ghopertunnel/legacy/player"
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/cmd"
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/session"
 
@@ -220,42 +218,46 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 								}
 							}()
 
-							line := cmd.NewLine(parts[1:], p, players)
-							cmdPtr := reflect.New(rc.Type)
-							cmdValue := cmdPtr.Elem()
-							cmdInstance := cmdPtr.Interface().(cmd.Command)
+							var lastErr error
+							success := false
 
-							if p.PermissionLevel().Level() < cmdInstance.PermissionLevel().Level() {
-								_ = p.Message("§cUnknown command: " + name)
-							} else {
+							for _, tpe := range rc.Types {
+								line := cmd.NewLine(parts[1:], p, players)
+								cmdPtr := reflect.New(tpe)
+								cmdValue := cmdPtr.Elem()
+								cmdInstance := cmdPtr.Interface().(cmd.Command)
+
+								if p.PermissionLevel().Level() < cmdInstance.PermissionLevel().Level() {
+									continue
+								}
+
 								parser := cmd.Parser{}
 								failed := false
-
 								for i := 0; i < cmdValue.NumField(); i++ {
 									field := cmdValue.Field(i)
-
-									if !field.CanAddr() {
-										_ = p.Message("§c internal: field not addressable")
-										failed = true
-										break
-									}
-
 									optional := strings.HasPrefix(field.Type().Name(), "Optional[")
-									fieldName := strings.ToLower(cmdValue.Type().Field(i).Name)
-
-									if err := parser.ParseArgument(line, field, optional, fieldName); err != nil {
-										_ = p.Message("§c" + err.Error())
+									if err := parser.ParseArgument(line, field, optional, strings.ToLower(tpe.Field(i).Name)); err != nil {
+										lastErr = err
 										failed = true
 										break
 									}
 								}
 
 								if !failed {
-									if arg, ok := line.Next(); ok {
-										_ = p.Message(fmt.Sprintf("§cSyntax error: Unexpected \"%s\"", arg))
-									} else {
+									if _, ok := line.Next(); !ok {
 										cmdInstance.Run(p)
+										success = true
+										break
+									} else {
+										lastErr = fmt.Errorf("Unexpected arguments remaining")
 									}
+								}
+							}
+							if !success {
+								if lastErr != nil {
+									p.Message("§c" + lastErr.Error())
+								} else {
+									p.Message("§cUnknown command overload")
 								}
 							}
 						}()
@@ -334,19 +336,15 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 				}
 				if cpk, ok := pk.(*packet.AvailableCommands); ok {
 					se.UpdateFromServer(cpk)
-
 					for name, rc := range cmd.CustomCommands {
-						cmdInstance := reflect.New(rc.Type).Interface().(cmd.Command)
-
+						cmdInstance := reflect.New(rc.Types[0]).Interface().(cmd.Command)
 						if p.PermissionLevel().Level() < cmdInstance.PermissionLevel().Level() {
 							continue
 						}
-
-						ovl := cmd.NewCommand(rc.Type, &cpk.Enums, &cpk.EnumValues)
+						ovl := cmd.NewCommand(rc.Types, &cpk.Enums, &cpk.EnumValues)
 						found := false
 						for i, existing := range cpk.Commands {
 							if strings.EqualFold(existing.Name, name) {
-								logger.Printf("command '%s' is overwriting an existing server command", name)
 								cpk.Commands[i].Description = cmdInstance.Description()
 								cpk.Commands[i].PermissionLevel = byte(cmdInstance.PermissionLevel().Level())
 								cpk.Commands[i].Overloads = ovl

@@ -346,12 +346,20 @@ func (p *Player) SendModalForm(f form.ModalForm) error {
 }
 
 // RegisterCommand registers a new custom command and syncs it with the client.
-func (p *Player) RegisterCommand(c cmd.Command) {
-	t := reflect.TypeOf(c)
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
+func (p *Player) RegisterCommand(commands ...cmd.Command) {
+	if len(commands) == 0 {
+		return
 	}
-	cmd.CustomCommands[c.Name()] = cmd.RegisteredCommand{Type: t}
+	name := commands[0].Name()
+	var types []reflect.Type
+	for _, c := range commands {
+		t := reflect.TypeOf(c)
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+		types = append(types, t)
+	}
+	cmd.CustomCommands[name] = cmd.RegisteredCommand{Types: types}
 	p.SendCommands()
 }
 
@@ -362,13 +370,9 @@ func (p *Player) SendCommands() {
 		pk = &packet.AvailableCommands{}
 	}
 	for name, rc := range cmd.CustomCommands {
-		val := reflect.New(rc.Type)
-		if val.Kind() == reflect.Ptr && val.Elem().CanAddr() {
-		}
-
-		cmdInstance := val.Interface().(cmd.Command)
+		cmdInstance := reflect.New(rc.Types[0]).Interface().(cmd.Command)
 		aliases := cmdInstance.Aliases()
-		baseOverloads := cmd.NewCommand(rc.Type, &pk.Enums, &pk.EnumValues)
+		baseOverloads := cmd.NewCommand(rc.Types, &pk.Enums, &pk.EnumValues)
 
 		aliasOffset := uint32(0xFFFFFFFF)
 		if len(aliases) > 0 {

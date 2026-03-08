@@ -326,7 +326,7 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 							continue
 						}
 
-						ovl := cmd.BuildCommand(rc.Type, &cpk.Enums, &cpk.EnumValues)
+						ovl := cmd.NewCommand(rc.Type, &cpk.Enums, &cpk.EnumValues)
 						found := false
 						for i, existing := range cpk.Commands {
 							if strings.EqualFold(existing.Name, name) {

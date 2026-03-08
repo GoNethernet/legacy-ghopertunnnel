@@ -1,9 +1,13 @@
 package cmd
 
 import (
-	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/permission"
 	"reflect"
 	"strings"
+
+	"github.com/go-gl/mathgl/mgl32"
+	"github.com/go-gl/mathgl/mgl64"
+	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/permission"
+	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/position"
 
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 )
@@ -30,8 +34,8 @@ type RegisteredCommand struct {
 // CustomCommands is a global registry of all commands available in the proxy.
 var CustomCommands = make(map[string]RegisteredCommand)
 
-// BuildCommand translates a Go struct into Minecraft protocol command overloads.
-func BuildCommand(t reflect.Type, enums *[]protocol.CommandEnum, enumValues *[]string) []protocol.CommandOverload {
+// NewCommand translates a Go struct into Minecraft protocol command overloads.
+func NewCommand(t reflect.Type, enums *[]protocol.CommandEnum, enumValues *[]string) []protocol.CommandOverload {
 	var params []protocol.CommandParameter
 	enumIndices := make(map[string]uint32)
 	for i, e := range *enums {
@@ -59,6 +63,8 @@ func BuildCommand(t reflect.Type, enums *[]protocol.CommandEnum, enumValues *[]s
 			enumOptions = []string{strings.ToLower(field.Name)}
 		case []Target:
 			tpe = protocol.CommandArgTypeTarget
+		case position.Position, mgl32.Vec3, mgl64.Vec3:
+			tpe = protocol.CommandArgTypePosition
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 			tpe = protocol.CommandArgTypeInt
 		case float32, float64:
@@ -76,7 +82,6 @@ func BuildCommand(t reflect.Type, enums *[]protocol.CommandEnum, enumValues *[]s
 				enumOptions = enum.Options()
 			} else {
 				tpe = protocol.CommandArgTypeValue
-
 			}
 		}
 		if enumOptions != nil {

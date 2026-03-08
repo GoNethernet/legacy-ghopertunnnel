@@ -3,6 +3,13 @@ package player
 import (
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"reflect"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/cmd"
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/effect"
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/form"
@@ -10,12 +17,6 @@ import (
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/permission"
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/position"
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/session"
-	"log"
-	"os"
-	"reflect"
-	"strings"
-	"sync"
-	"time"
 
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
@@ -363,7 +364,7 @@ func (p *Player) SendCommands() {
 	for name, rc := range cmd.CustomCommands {
 		cmdInstance := reflect.New(rc.Type).Interface().(cmd.Command)
 		aliases := cmdInstance.Aliases()
-		baseOverloads := cmd.BuildCommand(rc.Type, &pk.Enums, &pk.EnumValues)
+		baseOverloads := cmd.NewCommand(rc.Type, &pk.Enums, &pk.EnumValues)
 		if len(aliases) > 0 {
 			aliasEnum := protocol.CommandEnum{Type: name + "Aliases"}
 			for _, alias := range aliases {

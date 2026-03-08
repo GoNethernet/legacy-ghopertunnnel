@@ -15,11 +15,12 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
 	go func() {
 		for p := range srv.Accept() {
 			go func(pl *player.Player) {
-				time.Sleep(20 * time.Millisecond)
+				for {
+					time.Sleep(20 * time.Millisecond)
+				}
 			}(p)
 		}
 	}()

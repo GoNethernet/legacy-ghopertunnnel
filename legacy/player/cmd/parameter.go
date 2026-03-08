@@ -1,16 +1,25 @@
 package cmd
 
+// optionalT is an additional interface implementation for Optional.
+type optionalT interface {
+	// with represent an Optional type that addresses a value.
+	with(val any) any
+}
+
 // Optional represents a parameter that may or may not be provided in a command.
 type Optional[T any] struct {
 	// value holds the actual value of the parameter.
-	value T
-	// Has indicates if the parameter was actually provided by the sender.
+	Value T
+	// set indicates if the parameter was actually provided by the sender.
 	Has bool
 }
 
-// Value ...
-func (o Optional[T]) Value() T {
-	return o.value
+// Load returns the underlying value and a boolean indicating if the parameter was provided.
+func (o Optional[T]) Load() (T, bool) {
+	return o.Value, o.Has
+}
+func (o Optional[T]) with(val any) any {
+	return Optional[T]{Value: val.(T), Has: true}
 }
 
 // Enum represents a command parameter with a fixed set of options.

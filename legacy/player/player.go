@@ -362,45 +362,44 @@ func (p *Player) SendCommands() {
 		pk = &packet.AvailableCommands{}
 	}
 	for name, rc := range cmd.CustomCommands {
-		cmdInstance := reflect.New(rc.Type).Interface().(cmd.Command)
+		val := reflect.New(rc.Type)
+		if val.Kind() == reflect.Ptr && val.Elem().CanAddr() {
+		}
+
+		cmdInstance := val.Interface().(cmd.Command)
 		aliases := cmdInstance.Aliases()
 		baseOverloads := cmd.NewCommand(rc.Type, &pk.Enums, &pk.EnumValues)
+
+		aliasOffset := uint32(0xFFFFFFFF)
 		if len(aliases) > 0 {
-			aliasEnum := protocol.CommandEnum{Type: name + "Aliases"}
+			aliasEnum := protocol.CommandEnum{Type: strings.ToLower(name) + "Aliases"}
 			for _, alias := range aliases {
 				valIndex := uint32(len(pk.EnumValues))
-				pk.EnumValues = append(pk.EnumValues, alias)
+				pk.EnumValues = append(pk.EnumValues, strings.ToLower(alias))
 				aliasEnum.ValueIndices = append(aliasEnum.ValueIndices, valIndex)
 			}
-			enumIndex := uint32(len(pk.Enums))
+			aliasOffset = uint32(len(pk.Enums))
 			pk.Enums = append(pk.Enums, aliasEnum)
-			for _, ovl := range baseOverloads {
-				aliasParam := protocol.CommandParameter{
-					Name:     "alias",
-					Type:     protocol.CommandArgEnum | enumIndex | protocol.CommandArgValid,
-					Optional: false,
-				}
-				ovl.Parameters = append([]protocol.CommandParameter{aliasParam}, ovl.Parameters...)
-			}
 		}
+
 		found := false
 		for i, existing := range pk.Commands {
 			if strings.EqualFold(existing.Name, name) {
 				pk.Commands[i].Description = cmdInstance.Description()
 				pk.Commands[i].PermissionLevel = byte(p.PermissionLevel().Level())
 				pk.Commands[i].Overloads = baseOverloads
-				pk.Commands[i].AliasesOffset = 0xFFFFFFFF
+				pk.Commands[i].AliasesOffset = aliasOffset
 				found = true
 				break
 			}
 		}
 		if !found {
 			pk.Commands = append(pk.Commands, protocol.Command{
-				Name:            name,
+				Name:            strings.ToLower(name),
 				Description:     cmdInstance.Description(),
 				PermissionLevel: byte(p.PermissionLevel().Level()),
 				Overloads:       baseOverloads,
-				AliasesOffset:   0xFFFFFFFF,
+				AliasesOffset:   aliasOffset,
 			})
 		}
 	}

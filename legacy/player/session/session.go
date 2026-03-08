@@ -1,8 +1,9 @@
 package session
 
 import (
-	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/permission"
 	"sync"
+
+	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/permission"
 
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )

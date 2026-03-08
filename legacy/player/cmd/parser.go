@@ -51,7 +51,7 @@ type Parser struct{}
 // ParseArgument handles the conversion of a single command line argument into a Go reflect.Value.
 func (p Parser) ParseArgument(line *Line, v reflect.Value, optional bool, name string) error {
 	if len(line.args) == 0 && optional {
-		v.Set(reflect.Zero(v.Type()))
+		v.FieldByName("Has").SetBool(false)
 		return nil
 	}
 
@@ -59,14 +59,23 @@ func (p Parser) ParseArgument(line *Line, v reflect.Value, optional bool, name s
 	if !ok {
 		return fmt.Errorf("Syntax error: Unexpected \"\": at >>%s<<", name)
 	}
+
 	var err error
 	target := v
-	if strings.HasPrefix(v.Type().Name(), "Optional[") {
-		target = v.FieldByName("Value")
-		v.FieldByName("Has").SetBool(true)
+	if _, ok := v.Interface().(optionalT); ok {
+		field := v.FieldByName("Value")
+		if !field.IsValid() {
+			panic("field Value not found in Optional struct")
+		}
+		target = reflect.New(field.Type()).Elem()
 	}
+
+	if !target.IsValid() || !target.CanAddr() {
+		panic("field " + name + " is not addressable.")
+	}
+
 	i := target.Addr().Interface()
-	switch i.(type) {
+	switch res := i.(type) {
 	case *SubCommand:
 		if !strings.EqualFold(arg, name) {
 			err = fmt.Errorf("Syntax error: Unexpected \"%s\": at \"%s\"", arg, arg)
@@ -93,25 +102,19 @@ func (p Parser) ParseArgument(line *Line, v reflect.Value, optional bool, name s
 	case *int, *int8, *int16, *int32, *int64:
 		var val int64
 		val, err = strconv.ParseInt(arg, 10, target.Type().Bits())
-		if err != nil {
-			err = fmt.Errorf("Syntax error: \"%s\" is not a valid number", arg)
-		} else {
+		if err == nil {
 			target.SetInt(val)
 		}
 	case *uint, *uint8, *uint16, *uint32, *uint64:
 		var val uint64
 		val, err = strconv.ParseUint(arg, 10, target.Type().Bits())
-		if err != nil {
-			err = fmt.Errorf("Syntax error: \"%s\" is not a valid number", arg)
-		} else {
+		if err == nil {
 			target.SetUint(val)
 		}
 	case *float32, *float64:
 		var val float64
 		val, err = strconv.ParseFloat(arg, target.Type().Bits())
-		if err != nil {
-			err = fmt.Errorf("Syntax error: \"%s\" is not a valid number", arg)
-		} else {
+		if err == nil {
 			target.SetFloat(val)
 		}
 	case *string:
@@ -119,16 +122,17 @@ func (p Parser) ParseArgument(line *Line, v reflect.Value, optional bool, name s
 	case *bool:
 		var val bool
 		val, err = strconv.ParseBool(arg)
-		if err != nil {
-			err = fmt.Errorf("Syntax error: \"%s\" is not a valid boolean", arg)
-		} else {
+		if err == nil {
 			target.SetBool(val)
 		}
 	case *Varargs:
 		target.SetString(strings.Join(line.Leftover(), " "))
+		if o, ok := v.Interface().(optionalT); ok {
+			v.Set(reflect.ValueOf(o.with(target.Interface())))
+		}
 		return nil
 	default:
-		if enum, ok := target.Addr().Interface().(Enum); ok {
+		if enum, ok := res.(Enum); ok {
 			opts := enum.Options()
 			found := false
 			for _, opt := range opts {
@@ -146,6 +150,9 @@ func (p Parser) ParseArgument(line *Line, v reflect.Value, optional bool, name s
 
 	if err == nil {
 		line.RemoveNext()
+		if o, ok := v.Interface().(optionalT); ok {
+			v.Set(reflect.ValueOf(o.with(target.Interface())))
+		}
 	}
 	return err
 }

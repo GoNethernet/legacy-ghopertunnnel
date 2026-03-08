@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/gonethernet/legacy-ghopertunnel/legacy/player"
-	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/cmd"
-	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/session"
 	"iter"
+
+	"github.com/gonethernet/legacy-ghopertunnel/legacy/player"
+
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +15,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/cmd"
+	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/session"
 
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -210,43 +213,56 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 					name := parts[0]
 
 					if rc, ok := cmd.CustomCommands[name]; ok {
-						line := cmd.NewLine(parts[1:], p, players)
-						cmdValue := reflect.New(rc.Type)
-						cmdInstance := cmdValue.Interface().(cmd.Command)
+						func() {
+							defer func() {
+								if r := recover(); r != nil {
+									p.Message(fmt.Sprintf("§ccommand output error: %v", r))
+								}
+							}()
 
-						if p.PermissionLevel().Level() < cmdInstance.PermissionLevel().Level() {
-							_ = p.Message("§cUnknown command: " + name + ". Please check that the command exists and that you have permission to use it.")
-						} else {
-							val := cmdValue.Elem()
-							parser := cmd.Parser{}
-							failed := false
+							line := cmd.NewLine(parts[1:], p, players)
+							cmdPtr := reflect.New(rc.Type)
+							cmdValue := cmdPtr.Elem()
+							cmdInstance := cmdPtr.Interface().(cmd.Command)
 
-							for i := 0; i < val.NumField(); i++ {
-								field := val.Field(i)
-								fieldType := val.Type().Field(i)
-								fieldName := strings.ToLower(fieldType.Name)
-								optional := strings.HasPrefix(field.Type().Name(), "Optional[")
+							if p.PermissionLevel().Level() < cmdInstance.PermissionLevel().Level() {
+								_ = p.Message("§cUnknown command: " + name)
+							} else {
+								parser := cmd.Parser{}
+								failed := false
 
-								if err := parser.ParseArgument(line, field, optional, fieldName); err != nil {
-									_ = p.Message("§c" + err.Error())
-									failed = true
-									break
+								for i := 0; i < cmdValue.NumField(); i++ {
+									field := cmdValue.Field(i)
+
+									if !field.CanAddr() {
+										_ = p.Message("§c internal: field not addressable")
+										failed = true
+										break
+									}
+
+									optional := strings.HasPrefix(field.Type().Name(), "Optional[")
+									fieldName := strings.ToLower(cmdValue.Type().Field(i).Name)
+
+									if err := parser.ParseArgument(line, field, optional, fieldName); err != nil {
+										_ = p.Message("§c" + err.Error())
+										failed = true
+										break
+									}
+								}
+
+								if !failed {
+									if arg, ok := line.Next(); ok {
+										_ = p.Message(fmt.Sprintf("§cSyntax error: Unexpected \"%s\"", arg))
+									} else {
+										cmdInstance.Run(p)
+									}
 								}
 							}
-
-							if !failed {
-								if arg, ok := line.Next(); ok {
-									_ = p.Message(fmt.Sprintf("§cSyntax error: Unexpected \"%s\": at \"%s\"", arg, arg))
-								} else {
-									cmdInstance.Run(p)
-								}
-							}
-						}
+						}()
 						p.Session().ClearCommandData()
 						continue
 					}
 				}
-
 				if err := serverConn.WritePacket(pk); err != nil {
 					return
 				}

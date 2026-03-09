@@ -18,6 +18,14 @@ type Optional[T any] struct {
 func (o Optional[T]) Load() (T, bool) {
 	return o.Value, o.Has
 }
+
+// LoadOr returns the value if the parameter was provided, or a default value 'or' if it was not.
+func (o Optional[T]) LoadOr(or T) T {
+	if o.Has {
+		return o.Value
+	}
+	return or
+}
 func (o Optional[T]) with(val any) any {
 	return Optional[T]{Value: val.(T), Has: true}
 }

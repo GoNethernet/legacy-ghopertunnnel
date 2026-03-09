@@ -94,11 +94,3 @@ type ItemText struct{}
 
 func (i ItemText) Name() string { return "ItemText" }
 func (i ItemText) Type() int32  { return packet.HudElementItemText }
-
-// All returns all the HUD elements that are available to be shown or hidden in the game.
-func All() []Hud {
-	return []Hud{
-		PaperDoll{}, Armour{}, ToolTips{}, TouchControls{}, Crosshair{}, HotBar{}, Health{},
-		ProgressBar{}, Hunger{}, AirBubbles{}, HorseHealth{}, StatusEffects{}, ItemText{},
-	}
-}

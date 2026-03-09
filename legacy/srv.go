@@ -253,6 +253,7 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 									}
 								}
 							}
+
 							if !success {
 								if lastErr != nil {
 									p.Message("§c" + lastErr.Error())
@@ -336,11 +337,14 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 				}
 				if cpk, ok := pk.(*packet.AvailableCommands); ok {
 					se.UpdateFromServer(cpk)
+
 					for name, rc := range cmd.CustomCommands {
 						cmdInstance := reflect.New(rc.Types[0]).Interface().(cmd.Command)
+
 						if p.PermissionLevel().Level() < cmdInstance.PermissionLevel().Level() {
 							continue
 						}
+
 						ovl := cmd.NewCommand(rc.Types, &cpk.Enums, &cpk.EnumValues)
 						found := false
 						for i, existing := range cpk.Commands {

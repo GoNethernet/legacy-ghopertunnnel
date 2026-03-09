@@ -373,7 +373,6 @@ func (p *Player) SendCommands() {
 		cmdInstance := reflect.New(rc.Types[0]).Interface().(cmd.Command)
 		aliases := cmdInstance.Aliases()
 		baseOverloads := cmd.NewCommand(rc.Types, &pk.Enums, &pk.EnumValues)
-
 		aliasOffset := uint32(0xFFFFFFFF)
 		if len(aliases) > 0 {
 			aliasEnum := protocol.CommandEnum{Type: strings.ToLower(name) + "Aliases"}
@@ -385,7 +384,6 @@ func (p *Player) SendCommands() {
 			aliasOffset = uint32(len(pk.Enums))
 			pk.Enums = append(pk.Enums, aliasEnum)
 		}
-
 		found := false
 		for i, existing := range pk.Commands {
 			if strings.EqualFold(existing.Name, name) {
@@ -509,15 +507,17 @@ func (p *Player) RemoveBossbar() error {
 
 // HideHud triggers a texture animation to hide specific HUD elements.
 func (p *Player) HideHud(h hud.Hud) error {
-	return p.client.WritePacket(&packet.OnScreenTextureAnimation{
-		AnimationType: uint32(h.Type()),
+	return p.client.WritePacket(&packet.SetHud{
+		Elements:   []int32{h.Type()},
+		Visibility: packet.HudVisibilityHide,
 	})
 }
 
 // ShowHud triggers a texture animation to show specific HUD elements.
 func (p *Player) ShowHud(h hud.Hud) error {
-	return p.client.WritePacket(&packet.OnScreenTextureAnimation{
-		AnimationType: uint32(h.Type()),
+	return p.client.WritePacket(&packet.SetHud{
+		Elements:   []int32{h.Type()},
+		Visibility: packet.HudVisibilityReset,
 	})
 }
 

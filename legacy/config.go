@@ -133,14 +133,14 @@ type Config struct {
 		Path string `json:"path"`
 		// Required defines if the resources packs are mandatory or not.
 		Required bool `json:"required"`
-	}
+	} `json:"resources"`
 	// Whitelist ...
 	Whitelist struct {
 		// Enabled defines if the whitelist is enabled, the default value is 'false'.
 		Enabled bool `json:"enabled"`
 		// Names represent a slice of all minecraft game nametags that will be able to join the proxy if whitelist is enabled.
 		Names []string `json:"names"`
-	}
+	} `json:"whitelist"`
 }
 
 // readConfig creates the config if it is not created, then reads and returns it.

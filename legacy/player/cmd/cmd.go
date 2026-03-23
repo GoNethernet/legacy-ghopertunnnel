@@ -32,19 +32,24 @@ type RegisteredCommand struct {
 var CustomCommands = make(map[string]RegisteredCommand)
 
 // NewCommand translates a Go struct into Minecraft protocol command overloads.
-func NewCommand(types []reflect.Type, enums *[]protocol.CommandEnum, enumValues *[]string) []protocol.CommandOverload {
+func NewCommand(types []reflect.Type, enums *[]protocol.CommandEnum, enumValues *[]string, dynamicEnums *[]protocol.DynamicEnum) []protocol.CommandOverload {
 	var overloads []protocol.CommandOverload
+	enumIndices := make(map[string]uint32)
+	for i, e := range *enums {
+		enumIndices[e.Type] = uint32(i)
+	}
+	dynamicEnumIndices := make(map[string]uint32)
+	for i, e := range *dynamicEnums {
+		dynamicEnumIndices[e.Type] = uint32(i)
+	}
+
 	for _, t := range types {
 		if t.Kind() == reflect.Ptr {
 			t = t.Elem()
 		}
 		var params []protocol.CommandParameter
-		enumIndices := make(map[string]uint32)
-		for i, e := range *enums {
-			enumIndices[e.Type] = uint32(i)
-		}
-
 		foundOptional := false
+
 		for i := 0; i < t.NumField(); i++ {
 			field := t.Field(i)
 			var tpe uint32
@@ -62,6 +67,8 @@ func NewCommand(types []reflect.Type, enums *[]protocol.CommandEnum, enumValues 
 
 			var enumType string
 			var enumOptions []string
+			var isSoft bool
+
 			val := reflect.New(fieldType)
 			fv := val.Interface()
 
@@ -86,25 +93,41 @@ func NewCommand(types []reflect.Type, enums *[]protocol.CommandEnum, enumValues 
 				if enum, ok := fv.(Enum); ok {
 					enumType = enum.Type()
 					enumOptions = enum.Options()
+					if se, ok := fv.(SoftEnum); ok && se.Soft() {
+						isSoft = true
+					}
 				} else {
 					tpe = protocol.CommandArgTypeValue
 				}
 			}
 
 			if enumOptions != nil {
-				index, ok := enumIndices[enumType]
-				if !ok {
-					index = uint32(len(*enums))
-					enumIndices[enumType] = index
-					protoEnum := protocol.CommandEnum{Type: enumType}
-					for _, opt := range enumOptions {
-						valIndex := uint32(len(*enumValues))
-						*enumValues = append(*enumValues, opt)
-						protoEnum.ValueIndices = append(protoEnum.ValueIndices, valIndex)
+				if isSoft {
+					index, ok := dynamicEnumIndices[enumType]
+					if !ok {
+						index = uint32(len(*dynamicEnums))
+						dynamicEnumIndices[enumType] = index
+						*dynamicEnums = append(*dynamicEnums, protocol.DynamicEnum{
+							Type:   enumType,
+							Values: enumOptions,
+						})
 					}
-					*enums = append(*enums, protoEnum)
+					tpe = protocol.CommandArgSoftEnum | index
+				} else {
+					index, ok := enumIndices[enumType]
+					if !ok {
+						index = uint32(len(*enums))
+						enumIndices[enumType] = index
+						protoEnum := protocol.CommandEnum{Type: enumType}
+						for _, opt := range enumOptions {
+							valIndex := uint32(len(*enumValues))
+							*enumValues = append(*enumValues, opt)
+							protoEnum.ValueIndices = append(protoEnum.ValueIndices, valIndex)
+						}
+						*enums = append(*enums, protoEnum)
+					}
+					tpe = protocol.CommandArgEnum | index
 				}
-				tpe = protocol.CommandArgEnum | index
 			}
 
 			params = append(params, protocol.CommandParameter{

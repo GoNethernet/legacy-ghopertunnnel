@@ -2,6 +2,7 @@ package legacy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player"
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/cmd"
+	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/form"
+	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/permission"
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/session"
 
 	"github.com/google/uuid"
@@ -144,7 +147,18 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 			once    sync.Once
 			players []protocol.PlayerListEntry
 			ready   = make(chan struct{})
+			formsMu sync.Mutex
+			forms   = make(map[uint32]any)
+			lastID  uint32
 		)
+
+		addForm := func(f any) uint32 {
+			formsMu.Lock()
+			defer formsMu.Unlock()
+			lastID++
+			forms[lastID] = f
+			return lastID
+		}
 		g.Add(2)
 		go func() {
 			defer g.Done()
@@ -163,7 +177,7 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 		g.Wait()
 		done := make(chan struct{})
 		se := session.New(&mu)
-		p := player.NewPlayer(s.conn, serverConn, &mu, se)
+		p := player.NewPlayer(s.conn, serverConn, &mu, se, addForm)
 		go func() {
 			loginHandler := session.LoginPacket{}
 			defer func() {
@@ -183,10 +197,53 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 				se.UpdateFromClient(pk)
 				if formPk, ok := pk.(*packet.ModalFormResponse); ok {
 					data, hasData := formPk.ResponseData.Value()
-					if hasData {
-						p.HandleFormResponse(formPk.FormID, data)
-					} else {
-						p.HandleFormResponse(formPk.FormID, nil)
+					if !hasData || data == nil || string(data) == "null" {
+						continue
+					}
+
+					formsMu.Lock()
+					f, ok := forms[formPk.FormID]
+					delete(forms, formPk.FormID)
+					formsMu.Unlock()
+
+					if !ok {
+						continue
+					}
+
+					switch formType := f.(type) {
+					case form.CustomForm:
+						var res []json.RawMessage
+						if err := json.Unmarshal(data, &res); err == nil {
+							elems := formType.Elements()
+							for i, raw := range res {
+								if i >= len(elems) {
+									break
+								}
+								handleCustomElement(elems[i], raw)
+							}
+							formType.Submit(p)
+						}
+					case form.ModalForm:
+						var res bool
+						if err := json.Unmarshal(data, &res); err == nil {
+							btns := formType.Buttons()
+							if res && btns[0].Submit != nil {
+								btns[0].Submit(p)
+							} else if !res && btns[1].Submit != nil {
+								btns[1].Submit(p)
+							}
+						}
+					case form.SimpleForm:
+						var index uint32
+						if err := json.Unmarshal(data, &index); err == nil {
+							elems := formType.Elements()
+							btns := form.ElementsToButtons(elems)
+							if int(index) < len(btns) {
+								if btns[index].Submit != nil {
+									btns[index].Submit(p)
+								}
+							}
+						}
 					}
 					continue
 				}
@@ -208,29 +265,50 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 					if len(parts) == 0 || parts[0] == "" {
 						continue
 					}
-					name := parts[0]
+					name := strings.ToLower(parts[0])
 
-					if rc, ok := cmd.CustomCommands[name]; ok {
+					var targetRC cmd.RegisteredCommand
+					var found bool
+
+					for cmdName, rc := range cmd.CustomCommands {
+						if strings.EqualFold(cmdName, name) {
+							targetRC = rc
+							found = true
+							break
+						}
+						cmdInstance := reflect.New(rc.Types[0]).Interface().(cmd.Command)
+						for _, alias := range cmdInstance.Aliases() {
+							if strings.EqualFold(alias, name) {
+								targetRC = rc
+								found = true
+								break
+							}
+						}
+						if found {
+							break
+						}
+					}
+
+					if found {
 						func() {
 							defer func() {
 								if r := recover(); r != nil {
-									p.Message(fmt.Sprintf("§ccommand output error: %v", r))
+									logger.Printf("cmd %s: %v", name, r)
 								}
 							}()
-
 							var lastErr error
 							success := false
 
-							for _, tpe := range rc.Types {
+							for _, tpe := range targetRC.Types {
 								line := cmd.NewLine(parts[1:], p, players)
 								cmdPtr := reflect.New(tpe)
 								cmdValue := cmdPtr.Elem()
 								cmdInstance := cmdPtr.Interface().(cmd.Command)
 
 								if p.PermissionLevel().Level() < cmdInstance.PermissionLevel().Level() {
+									_ = p.Message(permission.LevelError())
 									continue
 								}
-
 								parser := cmd.Parser{}
 								failed := false
 								for i := 0; i < cmdValue.NumField(); i++ {
@@ -253,13 +331,8 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 									}
 								}
 							}
-
-							if !success {
-								if lastErr != nil {
-									p.Message("§c" + lastErr.Error())
-								} else {
-									p.Message("§cUnknown command overload")
-								}
+							if !success && lastErr != nil {
+								p.Message("§c" + lastErr.Error())
 							}
 						}()
 						p.Session().ClearCommandData()
@@ -345,24 +418,40 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 							continue
 						}
 
-						ovl := cmd.NewCommand(rc.Types, &cpk.Enums, &cpk.EnumValues)
+						ovl := cmd.NewCommand(rc.Types, &cpk.Enums, &cpk.EnumValues, &cpk.DynamicEnums)
+
+						allNames := append([]string{strings.ToLower(name)}, cmdInstance.Aliases()...)
+						aliasOffset := uint32(len(cpk.Enums))
+						aliasEnum := protocol.CommandEnum{
+							Type:         strings.ToLower(name) + "Names",
+							ValueIndices: make([]uint32, 0, len(allNames)),
+						}
+
+						for _, n := range allNames {
+							valIndex := uint32(len(cpk.EnumValues))
+							cpk.EnumValues = append(cpk.EnumValues, strings.ToLower(n))
+							aliasEnum.ValueIndices = append(aliasEnum.ValueIndices, valIndex)
+						}
+						cpk.Enums = append(cpk.Enums, aliasEnum)
+
 						found := false
 						for i, existing := range cpk.Commands {
 							if strings.EqualFold(existing.Name, name) {
 								cpk.Commands[i].Description = cmdInstance.Description()
 								cpk.Commands[i].PermissionLevel = byte(cmdInstance.PermissionLevel().Level())
 								cpk.Commands[i].Overloads = ovl
+								cpk.Commands[i].AliasesOffset = aliasOffset
 								found = true
 								break
 							}
 						}
 						if !found {
 							cpk.Commands = append(cpk.Commands, protocol.Command{
-								Name:            name,
+								Name:            strings.ToLower(name),
 								Description:     cmdInstance.Description(),
 								PermissionLevel: byte(cmdInstance.PermissionLevel().Level()),
 								Overloads:       ovl,
-								AliasesOffset:   0xFFFFFFFF,
+								AliasesOffset:   aliasOffset,
 							})
 						}
 					}
@@ -380,5 +469,59 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 			return
 		}
 		<-done
+	}
+}
+func handleCustomElement(e form.Element, data []byte) {
+	switch t := e.(type) {
+	case form.Toggle:
+		if t.Value != nil {
+			var v bool
+			_ = json.Unmarshal(data, &v)
+			t.Value(v)
+		}
+	case *form.Toggle:
+		if t.Value != nil {
+			var v bool
+			_ = json.Unmarshal(data, &v)
+			t.Value(v)
+		}
+	case form.Slider:
+		if t.Selected != nil {
+			var v float32
+			_ = json.Unmarshal(data, &v)
+			t.Selected(v)
+		}
+	case *form.Slider:
+		if t.Selected != nil {
+			var v float32
+			_ = json.Unmarshal(data, &v)
+			t.Selected(v)
+		}
+	case form.Input:
+		if t.Output != nil {
+			var v string
+			_ = json.Unmarshal(data, &v)
+			t.Output(v)
+		}
+	case *form.Input:
+		if t.Output != nil {
+			var v string
+			_ = json.Unmarshal(data, &v)
+			t.Output(v)
+		}
+	case form.Dropdown:
+		if t.Selected != nil {
+			var i int
+			if err := json.Unmarshal(data, &i); err == nil && i < len(t.Options) {
+				t.Selected(t.Options[i])
+			}
+		}
+	case *form.Dropdown:
+		if t.Selected != nil {
+			var i int
+			if err := json.Unmarshal(data, &i); err == nil && i < len(t.Options) {
+				t.Selected(t.Options[i])
+			}
+		}
 	}
 }

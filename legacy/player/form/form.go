@@ -29,8 +29,6 @@ type ModalForm interface {
 	Buttons() [2]Button
 }
 
-// ElementsToButtons converts a slice of Element interfaces into a slice of Button structs, it filters the input by checking if each
-// element is a Button or a pointer to one.
 func ElementsToButtons(elements []Element) []Button {
 	var buttons []Button
 	for _, e := range elements {

@@ -41,7 +41,7 @@ func Start() (*Server, error) {
 		if err != nil {
 			errR := err.Error()
 			if strings.Contains(errR, "403") {
-				logger.Fatalf("realm: realm '%s' not found in the default minecraft list, add the realm normally from minecraft first", realm.Name)
+				logger.Fatalf("realm: realm '%s' not found in the default minecraft list", realm.Name)
 			} else if strings.Contains(errR, "404") {
 				logger.Fatalf("realm: realm is unknown or unreachable")
 			} else if strings.Contains(errR, "401") {
@@ -62,7 +62,7 @@ func Start() (*Server, error) {
 			return nil, err
 		}
 	}
-	resources := Resources{
+	resources := &Resources{
 		raddr: raddr,
 		src:   token,
 		cfg:   cfg,
@@ -97,8 +97,7 @@ func Start() (*Server, error) {
 	for {
 		c, err := listener.Accept()
 		if err != nil {
-			logger.Printf("listener accept: %v", err)
-			continue
+			logger.Fatalf("listener accept: %v", err)
 		}
 		return &Server{
 			raddr:          raddr,

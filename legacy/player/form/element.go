@@ -84,8 +84,8 @@ type Input struct {
 	Placeholder string
 	// Default ...
 	Default string
-	// Final is the final selected value.
-	Final func(string)
+	// Output is the final selected value.
+	Output func(string)
 }
 
 // Name ...
@@ -109,7 +109,7 @@ type Slider struct {
 	Min float32
 	// Max ...
 	Max float32
-	// Step ...
+	// Step is the step value between to selection points.
 	Step float32
 	// Default ...
 	Default float32

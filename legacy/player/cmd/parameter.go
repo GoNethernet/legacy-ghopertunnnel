@@ -30,6 +30,13 @@ func (o Optional[T]) with(val any) any {
 	return Optional[T]{Value: val.(T), Has: true}
 }
 
+// SoftEnum extends Enum to allow dynamic updates without resending the full command packet.
+type SoftEnum interface {
+	Enum
+	// Soft ...
+	Soft() bool
+}
+
 // Enum represents a command parameter with a fixed set of options.
 type Enum interface {
 	// Type returns the name of the enum type.

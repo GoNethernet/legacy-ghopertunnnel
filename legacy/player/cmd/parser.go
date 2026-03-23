@@ -9,6 +9,14 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 )
 
+const (
+	MessageSyntax           = "Syntax error: Unexpected \"%s\": at \"%s >>%s<<\""
+	MessageBooleanInvalid   = "Syntax error: \"%s\" is not a valid boolean"
+	MessageNumberInvalid    = "Syntax error: \"%s\" is not a valid number"
+	MessageParameterInvalid = "Syntax error: Unexpected \"%s\""
+	MessagePlayerNotFound   = "Syntax error: Player \"%s\" not found"
+)
+
 // Line represents a command line holding arguments passed during execution.
 type Line struct {
 	args    []string
@@ -50,87 +58,65 @@ type Parser struct{}
 
 // ParseArgument handles the conversion of a single command line argument into a Go reflect.Value.
 func (p Parser) ParseArgument(line *Line, v reflect.Value, optional bool, name string) error {
-	if len(line.args) == 0 && optional {
-		v.FieldByName("Has").SetBool(false)
-		return nil
+	if len(line.args) == 0 {
+		if optional {
+			v.FieldByName("Has").SetBool(false)
+			return nil
+		}
+		return fmt.Errorf(MessageSyntax, "", strings.Join(line.seen, " "), name)
 	}
 
-	arg, ok := line.Next()
-	if !ok {
-		return fmt.Errorf("Syntax error: Unexpected \"\": at >>%s<<", name)
-	}
-
+	arg, _ := line.Next()
 	var err error
+
 	target := v
 	if _, ok := v.Interface().(optionalT); ok {
 		field := v.FieldByName("Value")
-		if !field.IsValid() {
-			panic("field Value not found in Optional struct")
-		}
 		target = reflect.New(field.Type()).Elem()
-	}
-
-	if !target.IsValid() || !target.CanAddr() {
-		panic("field " + name + " is not addressable.")
 	}
 
 	i := target.Addr().Interface()
 	switch res := i.(type) {
 	case *SubCommand:
 		if !strings.EqualFold(arg, name) {
-			err = fmt.Errorf("Syntax error: Unexpected \"%s\": at \"%s\"", arg, arg)
-		}
-	case *[]Target:
-		var targets []Target
-		switch arg {
-		case "@s", "@p", "@r", "@a", "@e":
-			if t, ok := line.src.(Target); ok {
-				targets = append(targets, t)
-			} else {
-				err = fmt.Errorf("Syntax error: Source is not a valid target for selector %s", arg)
-			}
-		default:
-			t, found := p.lookupPlayer(line, arg)
-			if !found {
-				return fmt.Errorf("Syntax error: Player \"%s\" not found", arg)
-			}
-			targets = append(targets, t)
-		}
-		if err == nil {
-			target.Set(reflect.ValueOf(targets))
+			return fmt.Errorf(MessageParameterInvalid, arg)
 		}
 	case *int, *int8, *int16, *int32, *int64:
-		var val int64
-		val, err = strconv.ParseInt(arg, 10, target.Type().Bits())
-		if err == nil {
-			target.SetInt(val)
+		val, parseErr := strconv.ParseInt(arg, 10, target.Type().Bits())
+		if parseErr != nil {
+			return fmt.Errorf(MessageNumberInvalid, arg)
 		}
+		target.SetInt(val)
 	case *uint, *uint8, *uint16, *uint32, *uint64:
-		var val uint64
-		val, err = strconv.ParseUint(arg, 10, target.Type().Bits())
-		if err == nil {
-			target.SetUint(val)
+		val, parseErr := strconv.ParseUint(arg, 10, target.Type().Bits())
+		if parseErr != nil {
+			return fmt.Errorf(MessageNumberInvalid, arg)
 		}
+		target.SetUint(val)
 	case *float32, *float64:
-		var val float64
-		val, err = strconv.ParseFloat(arg, target.Type().Bits())
-		if err == nil {
-			target.SetFloat(val)
+		val, parseErr := strconv.ParseFloat(arg, target.Type().Bits())
+		if parseErr != nil {
+			return fmt.Errorf(MessageNumberInvalid, arg)
 		}
+		target.SetFloat(val)
+	case *bool:
+		val, parseErr := strconv.ParseBool(arg)
+		if parseErr != nil {
+			return fmt.Errorf(MessageBooleanInvalid, arg)
+		}
+		target.SetBool(val)
 	case *string:
 		target.SetString(arg)
-	case *bool:
-		var val bool
-		val, err = strconv.ParseBool(arg)
-		if err == nil {
-			target.SetBool(val)
-		}
 	case *Varargs:
 		target.SetString(strings.Join(line.Leftover(), " "))
-		if o, ok := v.Interface().(optionalT); ok {
-			v.Set(reflect.ValueOf(o.with(target.Interface())))
-		}
+		p.finalizeOptional(v, target)
 		return nil
+	case *[]Target:
+		targets, targetErr := p.parseTargets(line, arg)
+		if targetErr != nil {
+			return targetErr
+		}
+		target.Set(reflect.ValueOf(targets))
 	default:
 		if enum, ok := res.(Enum); ok {
 			opts := enum.Options()
@@ -143,16 +129,14 @@ func (p Parser) ParseArgument(line *Line, v reflect.Value, optional bool, name s
 				}
 			}
 			if !found {
-				err = fmt.Errorf("Syntax error: Unexpected \"%s\": at \"%s\"", arg, arg)
+				return fmt.Errorf(MessageParameterInvalid, arg)
 			}
 		}
 	}
 
 	if err == nil {
 		line.RemoveNext()
-		if o, ok := v.Interface().(optionalT); ok {
-			v.Set(reflect.ValueOf(o.with(target.Interface())))
-		}
+		p.finalizeOptional(v, target)
 	}
 	return err
 }
@@ -165,4 +149,44 @@ func (p Parser) lookupPlayer(line *Line, name string) (Target, bool) {
 		}
 	}
 	return nil, false
+}
+
+// finalizeOptional is a helper function that wraps the parsed target value into an
+// Optional[T] structure, setting the 'Has' flag to true.
+func (p Parser) finalizeOptional(v reflect.Value, target reflect.Value) {
+	if o, ok := v.Interface().(optionalT); ok {
+		v.Set(reflect.ValueOf(o.with(target.Interface())))
+	}
+}
+
+// parseTargets parses one or more targets from the provided argument, it supports Minecraft selectors like
+// @s, @p, @a, @r, @e and falls back to player name lookup, returning compliant error messages if no targets are found.
+func (p Parser) parseTargets(line *Line, arg string) ([]Target, error) {
+	var targets []Target
+	switch arg {
+	case "@s":
+		if t, ok := line.src.(Target); ok {
+			targets = append(targets, t)
+		}
+	case "@p", "@a", "@r", "@e":
+		for _, entry := range line.players {
+			targets = append(targets, PlayerTarget{NameValue: entry.Username})
+		}
+		if arg == "@p" || arg == "@r" {
+			if len(targets) > 0 {
+				targets = targets[:1]
+			}
+		}
+	default:
+		t, found := p.lookupPlayer(line, arg)
+		if !found {
+			return nil, fmt.Errorf(MessagePlayerNotFound, arg)
+		}
+		targets = append(targets, t)
+	}
+
+	if len(targets) == 0 {
+		return nil, fmt.Errorf(MessagePlayerNotFound, arg)
+	}
+	return targets, nil
 }

@@ -5,13 +5,15 @@ import (
 )
 
 // Validate checks if the form is valid.
-func Validate(f interface{}) error {
-	switch ft := f.(type) {
+func Validate(v interface {
+	Title() string
+}) error {
+	switch ft := v.(type) {
 	case CustomForm:
 		for _, e := range ft.Elements() {
 			switch e.(type) {
 			case Button, *Button:
-				return fmt.Errorf("form validate: button not allowed in custom form")
+				return fmt.Errorf("form validate: %s not allowed in custom form", e.Name())
 			}
 		}
 		return nil

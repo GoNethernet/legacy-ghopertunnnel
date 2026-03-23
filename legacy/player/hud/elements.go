@@ -68,7 +68,7 @@ func (h Hunger) Type() int32  { return packet.HudElementHunger }
 
 // AirBubbles is the element that shows the player's air bubbles, which indicate how much air the player has
 // left when underwater. It is located either above the hotbar or at the top of the screen on in non-classic
-// views. It is only visible when the player is underwater or they are regenerating air after being underwater.
+// views. It is only visible when the player is underwater, or they are regenerating air after being underwater.
 type AirBubbles struct{}
 
 func (a AirBubbles) Name() string { return "AirBubbles" }

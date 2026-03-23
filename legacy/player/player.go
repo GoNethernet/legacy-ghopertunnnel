@@ -27,23 +27,21 @@ var logger = log.New(os.Stdout, "", log.LstdFlags)
 
 // Player represents a connected user in the proxy session.
 type Player struct {
-	mu         *sync.Mutex
-	client     *minecraft.Conn
-	server     *minecraft.Conn
-	formsMu    sync.Mutex
-	forms      map[uint32]interface{}
-	lastFormID uint32
-	se         *session.Session
+	mu      *sync.Mutex
+	client  *minecraft.Conn
+	server  *minecraft.Conn
+	se      *session.Session
+	addForm func(any) uint32
 }
 
 // NewPlayer creates and initializes a new Player instance.
-func NewPlayer(client, server *minecraft.Conn, mu *sync.Mutex, sess *session.Session) *Player {
+func NewPlayer(client, server *minecraft.Conn, mu *sync.Mutex, sess *session.Session, addForm func(any) uint32) *Player {
 	return &Player{
-		client: client,
-		server: server,
-		mu:     mu,
-		se:     sess,
-		forms:  make(map[uint32]interface{}),
+		client:  client,
+		server:  server,
+		mu:      mu,
+		se:      sess,
+		addForm: addForm,
 	}
 }
 
@@ -204,108 +202,9 @@ func (p *Player) Rotation() *position.Rotation {
 	return position.NewRotation(p.client, p.se.Inputs())
 }
 
-// HandleFormResponse processes responses from UI forms sent to the client.
-func (p *Player) HandleFormResponse(id uint32, data []byte) {
-	p.formsMu.Lock()
-	f, ok := p.forms[id]
-	delete(p.forms, id)
-	p.formsMu.Unlock()
-	if !ok || data == nil || string(data) == "null" {
-		return
-	}
-	switch formType := f.(type) {
-	case form.CustomForm:
-		var res []json.RawMessage
-		if err := json.Unmarshal(data, &res); err == nil {
-			elems := formType.Elements()
-			for i, raw := range res {
-				if i >= len(elems) {
-					break
-				}
-				p.handleCustomElement(elems[i], raw)
-			}
-			formType.Submit(p)
-		}
-	case form.ModalForm:
-		var res bool
-		if err := json.Unmarshal(data, &res); err == nil {
-			btns := formType.Buttons()
-			if res && btns[0].Submit != nil {
-				btns[0].Submit(p)
-			} else if !res && btns[1].Submit != nil {
-				btns[1].Submit(p)
-			}
-		}
-	case form.SimpleForm:
-		var index uint32
-		if err := json.Unmarshal(data, &index); err == nil {
-			elems := formType.Elements()
-			btns := form.ElementsToButtons(elems)
-			if int(index) < len(btns) {
-				if btns[index].Submit != nil {
-					btns[index].Submit(p)
-				}
-			}
-		}
-	default:
-		fmt.Printf("unknown form type: %v", f)
-	}
-}
-
-// handleCustomElement processes individual elements within a custom form.
-func (p *Player) handleCustomElement(e form.Element, data []byte) {
-	switch t := e.(type) {
-	case form.Toggle:
-		if t.Value != nil {
-			var v bool
-			_ = json.Unmarshal(data, &v)
-			t.Value(v)
-		}
-	case *form.Toggle:
-		if t.Value != nil {
-			var v bool
-			_ = json.Unmarshal(data, &v)
-			t.Value(v)
-		}
-	case form.Slider:
-		if t.Selected != nil {
-			var v float32
-			_ = json.Unmarshal(data, &v)
-			t.Selected(v)
-		}
-	case *form.Slider:
-		if t.Selected != nil {
-			var v float32
-			_ = json.Unmarshal(data, &v)
-			t.Selected(v)
-		}
-	case form.Input:
-		if t.Final != nil {
-			var v string
-			_ = json.Unmarshal(data, &v)
-			t.Final(v)
-		}
-	case *form.Input:
-		if t.Final != nil {
-			var v string
-			_ = json.Unmarshal(data, &v)
-			t.Final(v)
-		}
-	case form.Dropdown:
-		if t.Selected != nil {
-			var i int
-			if err := json.Unmarshal(data, &i); err == nil && i < len(t.Options) {
-				t.Selected(t.Options[i])
-			}
-		}
-	case *form.Dropdown:
-		if t.Selected != nil {
-			var i int
-			if err := json.Unmarshal(data, &i); err == nil && i < len(t.Options) {
-				t.Selected(t.Options[i])
-			}
-		}
-	}
+// Hunger ...
+func (p *Player) Hunger() float32 {
+	return p.se.Hunger()
 }
 
 // CommandsData returns the map of all registered custom commands.
@@ -350,7 +249,7 @@ func (p *Player) RegisterCommand(commands ...cmd.Command) {
 	if len(commands) == 0 {
 		return
 	}
-	name := commands[0].Name()
+	name := strings.ToLower(commands[0].Name())
 	var types []reflect.Type
 	for _, c := range commands {
 		t := reflect.TypeOf(c)
@@ -360,51 +259,11 @@ func (p *Player) RegisterCommand(commands ...cmd.Command) {
 		types = append(types, t)
 	}
 	cmd.CustomCommands[name] = cmd.RegisteredCommand{Types: types}
-	p.SendCommands()
-}
-
-// SendCommands sends the available custom commands.
-func (p *Player) SendCommands() {
 	pk := p.se.AvailableCommands()
 	if pk == nil {
 		pk = &packet.AvailableCommands{}
 	}
-	for name, rc := range cmd.CustomCommands {
-		cmdInstance := reflect.New(rc.Types[0]).Interface().(cmd.Command)
-		aliases := cmdInstance.Aliases()
-		baseOverloads := cmd.NewCommand(rc.Types, &pk.Enums, &pk.EnumValues)
-		aliasOffset := uint32(0xFFFFFFFF)
-		if len(aliases) > 0 {
-			aliasEnum := protocol.CommandEnum{Type: strings.ToLower(name) + "Aliases"}
-			for _, alias := range aliases {
-				valIndex := uint32(len(pk.EnumValues))
-				pk.EnumValues = append(pk.EnumValues, strings.ToLower(alias))
-				aliasEnum.ValueIndices = append(aliasEnum.ValueIndices, valIndex)
-			}
-			aliasOffset = uint32(len(pk.Enums))
-			pk.Enums = append(pk.Enums, aliasEnum)
-		}
-		found := false
-		for i, existing := range pk.Commands {
-			if strings.EqualFold(existing.Name, name) {
-				pk.Commands[i].Description = cmdInstance.Description()
-				pk.Commands[i].PermissionLevel = byte(p.PermissionLevel().Level())
-				pk.Commands[i].Overloads = baseOverloads
-				pk.Commands[i].AliasesOffset = aliasOffset
-				found = true
-				break
-			}
-		}
-		if !found {
-			pk.Commands = append(pk.Commands, protocol.Command{
-				Name:            strings.ToLower(name),
-				Description:     cmdInstance.Description(),
-				PermissionLevel: byte(p.PermissionLevel().Level()),
-				Overloads:       baseOverloads,
-				AliasesOffset:   aliasOffset,
-			})
-		}
-	}
+	syncCommands(pk, p)
 	_ = p.client.WritePacket(pk)
 }
 
@@ -450,11 +309,7 @@ func (p *Player) SendCustomForm(f form.CustomForm) error {
 
 // nextID generates and stores a new unique ID for a UI form.
 func (p *Player) nextID(f interface{}) uint32 {
-	p.formsMu.Lock()
-	defer p.formsMu.Unlock()
-	p.lastFormID++
-	p.forms[p.lastFormID] = f
-	return p.lastFormID
+	return p.addForm(f)
 }
 
 // Disconnect forcefully closes the connection with an optional message.
@@ -680,4 +535,52 @@ func (p *Player) ClientLatency() time.Duration {
 // ServerLatency returns the measured network latency for the destination server.
 func (p *Player) ServerLatency() time.Duration {
 	return p.server.Latency()
+}
+
+// syncCommands injects custom commands and aliases into the AvailableCommands packet.
+func syncCommands(pk *packet.AvailableCommands, p *Player) {
+	for name, rc := range cmd.CustomCommands {
+		cmdInstance := reflect.New(rc.Types[0]).Interface().(cmd.Command)
+
+		if p.PermissionLevel().Level() < cmdInstance.PermissionLevel().Level() {
+			continue
+		}
+
+		allNames := append([]string{strings.ToLower(name)}, cmdInstance.Aliases()...)
+		ovl := cmd.NewCommand(rc.Types, &pk.Enums, &pk.EnumValues, &pk.DynamicEnums)
+
+		aliasOffset := uint32(len(pk.Enums))
+		aliasEnum := protocol.CommandEnum{
+			Type:         strings.ToLower(name) + "Names",
+			ValueIndices: make([]uint32, 0, len(allNames)),
+		}
+
+		for _, n := range allNames {
+			valIndex := uint32(len(pk.EnumValues))
+			pk.EnumValues = append(pk.EnumValues, strings.ToLower(n))
+			aliasEnum.ValueIndices = append(aliasEnum.ValueIndices, valIndex)
+		}
+		pk.Enums = append(pk.Enums, aliasEnum)
+
+		found := false
+		for i, existing := range pk.Commands {
+			if strings.EqualFold(existing.Name, name) {
+				pk.Commands[i].Description = cmdInstance.Description()
+				pk.Commands[i].PermissionLevel = byte(cmdInstance.PermissionLevel().Level())
+				pk.Commands[i].Overloads = ovl
+				pk.Commands[i].AliasesOffset = aliasOffset
+				found = true
+				break
+			}
+		}
+		if !found {
+			pk.Commands = append(pk.Commands, protocol.Command{
+				Name:            strings.ToLower(name),
+				Description:     cmdInstance.Description(),
+				PermissionLevel: byte(cmdInstance.PermissionLevel().Level()),
+				Overloads:       ovl,
+				AliasesOffset:   aliasOffset,
+			})
+		}
+	}
 }

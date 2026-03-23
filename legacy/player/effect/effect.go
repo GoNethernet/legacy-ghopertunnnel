@@ -14,6 +14,7 @@ type Effect interface {
 	Particles() bool
 }
 
+// All returns a slice of all effect names.
 func All() []string {
 	return []string{
 		"speed", "slowness", "haste", "mining_fatigue", "strength",
@@ -25,6 +26,7 @@ func All() []string {
 	}
 }
 
+// ByName returns an effect with its force and duration by its name.
 func ByName(name string, force float32, duration time.Duration, particles bool) Effect {
 	switch name {
 	case "speed":

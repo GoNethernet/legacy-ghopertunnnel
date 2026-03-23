@@ -207,18 +207,6 @@ func (p *Player) Hunger() float32 {
 	return p.se.Hunger()
 }
 
-// CommandsData returns the map of all registered custom commands.
-func (p *Player) CommandsData() map[string]cmd.RegisteredCommand {
-	return cmd.CustomCommands
-}
-
-// IsCustom checks if a specific command name is a registered custom command.
-func (p *Player) IsCustom(name string) bool {
-	name = strings.TrimPrefix(name, "/")
-	_, ok := cmd.CustomCommands[name]
-	return ok
-}
-
 // Session returns the internal proxy session associated with the player.
 func (p *Player) Session() *session.Session {
 	return p.se

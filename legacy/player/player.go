@@ -17,6 +17,8 @@ import (
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/permission"
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/position"
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/session"
+	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/world"
+	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/world/gamemode"
 
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
@@ -82,8 +84,24 @@ func (p *Player) HeldSlot() int32 {
 }
 
 // GameMode returns the current game mode of the player.
-func (p *Player) GameMode() int32 {
-	return p.se.GameMode()
+func (p *Player) GameMode() gamemode.GameMode {
+	switch p.se.GameMode() {
+	case 0:
+		return gamemode.Survival{}
+	case 1:
+		return gamemode.Creative{}
+	case 2:
+		return gamemode.Adventure{}
+	case 3:
+		return gamemode.Spectator{}
+	default:
+		return nil
+	}
+}
+
+// World ...
+func (p *Player) World() *world.World {
+	return p.se.World()
 }
 
 // PermissionLevel returns the current permission level from the session.

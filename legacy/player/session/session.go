@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/permission"
+	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/world"
 
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -17,11 +18,12 @@ type Session struct {
 	inputs                           *packet.PlayerAuthInput
 	command                          *packet.CommandRequest
 	commandsPacket                   *packet.AvailableCommands
+	world                            *world.World
 }
 
 // New creates a new empty session.
-func New(mu *sync.Mutex) *Session {
-	return &Session{mu: mu}
+func New(mu *sync.Mutex, world *world.World) *Session {
+	return &Session{mu: mu, world: world}
 }
 
 // UpdateFromClient updates packet from the client.
@@ -107,3 +109,6 @@ func (s *Session) AvailableCommands() *packet.AvailableCommands {
 func (s *Session) Hunger() float32 {
 	return s.hunger
 }
+
+// World ...
+func (s *Session) World() *world.World { return s.world }

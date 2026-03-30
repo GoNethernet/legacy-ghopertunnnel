@@ -19,6 +19,7 @@ import (
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/form"
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/permission"
 	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/session"
+	"github.com/gonethernet/legacy-ghopertunnel/legacy/player/world"
 
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft"
@@ -150,6 +151,7 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 			formsMu sync.Mutex
 			forms   = make(map[uint32]any)
 			lastID  uint32
+			time    int32
 		)
 
 		addForm := func(f any) uint32 {
@@ -176,7 +178,7 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 		}()
 		g.Wait()
 		done := make(chan struct{})
-		se := session.New(&mu)
+		se := session.New(&mu, world.NewHandler(serverConn.GameData(), time))
 		p := player.NewPlayer(s.conn, serverConn, &mu, se, addForm)
 		go func() {
 			loginHandler := session.LoginPacket{}
@@ -375,6 +377,9 @@ func (s *Server) Accept() iter.Seq[*player.Player] {
 						logger.Printf("%v", err)
 						continue
 					}
+				}
+				if t, ok := pk.(*packet.SetTime); ok {
+					time = t.Time
 				}
 				if t, ok := pk.(*packet.PlayerList); ok {
 					if t.ActionType == packet.PlayerListActionAdd {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
 	"golang.org/x/oauth2"
 )
@@ -87,9 +88,9 @@ func Start() (*Server, error) {
 		return nil, err
 	}
 	if isRealm {
-		logger.Printf("listening... local address: %s, remote address: %s (realm: %s)", cfg.Network.LocalAddress, raddr, rInfo.Name)
+		logger.Printf("listening... local address: %s, remote address: %s (realm: %s), minecraft version: %s", cfg.Network.LocalAddress, raddr, rInfo.Name, protocol.CurrentVersion)
 	} else {
-		logger.Printf("listening... local address: %s, remote address: %s", cfg.Network.LocalAddress, raddr)
+		logger.Printf("listening... local address: %s, remote address: %s, minecraft version: %s", cfg.Network.LocalAddress, raddr, protocol.CurrentVersion)
 	}
 	if cfg.Whitelist.Enabled {
 		logger.Printf("whitelist enabled: %v", cfg.Whitelist.Names)
